@@ -35,9 +35,10 @@ their own metaclass or in multiple inheritance scenarios.
 
 __all__ = 'FilterDict', 'StrDict', 'NsDict', 'NestedNsDict'
 
-from functools import update_wrapper, lru_cache
-from itertools import chain, starmap, repeat
-from collections import defaultdict, OrderedDict as Ord
+import sys
+from functools import update_wrapper
+from itertools import starmap, repeat
+from collections import defaultdict, OrderedDict
 from collections.abc import *
 from abc import ABCMeta, abstractmethod
 import logging
@@ -50,7 +51,7 @@ from weakref import WeakKeyDictionary as Wkd
 
 logger = logging.getLogger(__name__)
 __docformat__ = 'restructuredtext'
-__version__ = 1, 0, 0
+__version__ = 1, 0, 1
 
 
 def _iskeyword(k):
@@ -59,7 +60,7 @@ def _iskeyword(k):
 
     :param k: The string to be tested.
     """
-    return k in frozenset((
+    return k in {
         'False',
         'None',
         'True',
@@ -95,7 +96,8 @@ def _iskeyword(k):
         'while',
         'with',
         'yield'
-    ))
+    }
+
 
 def _getsignature(routine, *implementors, default=None):
     """
@@ -237,9 +239,12 @@ class FilterDictMeta(ABCMeta):
 
             # copy implementations of most methods from respective dict methods
             for m in mcs._dic_meths:
+                if m == '__reversed__' and sys.version_info < (3, 8):
+                    continue
                 tmp_ns[m] = dic_bound_meth = f'dict.{m}(dics[self], '
                 sig, source_cls, doc = _getsignature(
-                    vars(dict)[m], Ord, MutableMapping, Mapping, defaultdict
+                    vars(dict)[m], OrderedDict, MutableMapping,
+                    Mapping, defaultdict
                 )
                 selfsig = ', '.join(sig)
                 dicparams = ', '.join(
@@ -385,7 +390,7 @@ class FilterDict(MutableMapping, metaclass=_m):
             that fail the test are silently excluded from the dictionary.
         """
         c = type(self)
-        kc, tmp = c.keycheck, Ord()
+        kc, tmp = c.keycheck, OrderedDict()
         tmp_upd, tmp_popitem = tmp.update, tmp.popitem,
         for a in args:
             try:
