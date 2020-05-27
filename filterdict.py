@@ -551,7 +551,6 @@ class NestedNsDict(NsDict):
         super().__setattr__(k, v)
 
     def __init__(self, *a, **kwa):
-        super().__init__(*a, **kwa)
         c = __class__
         if not hasattr(c, '_parents'):
             c._parents = Wkd()

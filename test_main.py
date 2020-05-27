@@ -112,8 +112,7 @@ class TestValidUse(ut.TestCase):
             aa = self.nsdic.aa
 
     def test_Nns_missing_attr_get(self):
-        if fd.__version__ > (1, 0, 0):
-            self.assertEqual(self.nnsdic.aa, {})
+        self.assertEqual(self.nnsdic.aa, {})
 
     def test_Nns_chained_attr_set(self):
         self.assertEqual(self.nsdic.aa.bb.cc, 42)
