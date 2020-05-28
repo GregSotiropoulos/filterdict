@@ -84,13 +84,13 @@ class TestValidUse(ut.TestCase):
         d['a'] = 42
         self.assertEqual(d['a'], 42)
 
-    def test_Dummy_getattr(self):
-        dd = self.dummydic
+    def test_Ns_getattr(self):
+        dd = self.nsdic
         self.assertEqual(dd.a, 4)
         self.assertEqual(getattr(dd, 'a', None), 4)
 
-    def test_Dummy_setattr(self):
-        d = self.dummydic
+    def test_Ns_setattr(self):
+        d = self.nsdic
         d.a = 42
         self.assertEqual(d['a'], 42)
 
@@ -111,19 +111,20 @@ class TestValidUse(ut.TestCase):
         with self.assertRaises(AttributeError):
             aa = self.nsdic.aa
 
-    def test_Nns_missing_attr_get(self):
+    def test_Nns_get_missing_attr(self):
         self.assertEqual(self.nnsdic.aa, {})
 
-    def test_Nns_chained_attr_set(self):
-        self.assertEqual(self.nsdic.aa.bb.cc, 42)
+    def test_Nns_set_chained_attr(self):
+        d = self.nnsdic
+        d.aa.bb.cc = 42
+        self.assertEqual(d.aa.bb.cc, 42)
 
     def test_Nns_parent(self):
-        d = self.dummydic
+        d = self.nnsdic
         d.aa.bb.cc.dd = 42
         self.assertEqual(d.aa.bb.cc.parent, d.aa.bb)
         self.assertEqual(d.aa.bb.cc.parent['cc'], dict(dd=42))
         self.assertIsNone(d.parent)
-        self.assertIsNone(d.parent.parent)
 
 
 if __name__ == '__main__':

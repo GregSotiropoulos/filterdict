@@ -26,11 +26,17 @@ The module also provides a few concrete subclasses that can be useful either:
     - as base classes for other more useful subclasses
     - as guides on how to subclass the ABC to create your own dictionary types
 
-Note: the module also defines a custom metaclass that derives from
-``ABCMeta``. This should be transparent to client code that does not dig too
-deeply into the module's inner workings. For example, potential issues might
-arise due to metaclass conflicts, eg in cases where subclassing modules define
-their own metaclass or in multiple inheritance scenarios.
+Notes:
+    1. The module also defines a custom metaclass that derives from
+       ``ABCMeta``. This should be transparent to client code that does not dig
+       too deeply into the module's inner workings. For example, potential
+       issues might arise due to metaclass conflicts, eg in cases where
+       subclassing modules define their own metaclass or in multiple
+       inheritance scenarios.
+    2. A read-only view of (ie a ``MappingProxy`` wrapped around) the underlying
+       dictionary is provided via the ``proxy`` attribute. This may allow for
+       faster reads (calls to ``__getitem__``) and iteration as it bypasses
+       custom methods.
 """
 
 __all__ = 'FilterDict', 'StrDict', 'NsDict', 'NestedNsDict'
@@ -114,18 +120,16 @@ def _getsignature(routine, *implementors, default=None):
         name as the callable. These serve as a fallback in case the callable
         does not contain enough metadata to accurately retrieve its signature.
 
-    :param default: Default signature, which is ``'self', '*args', '**kw``,
+    :param default: Default signature, which is ``('self', '*args', '**kw``),
         unless ``routine`` is a ``classmethod`` or ``staticmethod``, in which
-        case the first element ``'self'`` is omitted.
+        case the first element, ``'self'``, is omitted.
 
-        tuple of strings containing the names (and, when
-        present, the default values) of all arguments.
-
-    :return: A 3-tuple. First element is the signature, which is itself
-        a tuple of strings -- also see ``default`` parameter). Second  the
-        implementation (if additional ones are supplied, otherwise ``None``)
-        from which the signature was retrieved; and ``routine``'s docstring
-        (when available).
+    :return: A 3-tuple. The first element is the signature, which is itself
+        a tuple of strings containing the names (and, when
+        present, the default values) of all arguments. The second
+        element is the implementation (if additional ones are supplied,
+        otherwise ``None``) from which the signature was retrieved. The last
+        element is the ``routine``'s docstring (when available).
     """
     if not callable(routine):
         raise TypeError('First argument must be a callable.')
@@ -166,7 +170,6 @@ class FilterDictMeta(ABCMeta):
 
     # Implementations for these methods are copies of the respective dict ones
     _dic_meths = (
-
         '__getitem__',
         '__contains__',
         '__iter__',
@@ -205,20 +208,18 @@ class FilterDictMeta(ABCMeta):
 
     _abstract_meths = 'keycheck', 'counter_eg'
     _mappingproxy_prop = 'proxy'
+    _attr_meths = '__setattr__', '__getattr__', '__getattribute__'
 
     # ***** CONSTANTS: END *****
 
     _base_name = __all__[0]
-    _reserved = frozenset({
-        _mappingproxy_prop,
-        '__setattr__', '__getattr__', '__getattribute__'
-        }.union(
-            _dic_meths,
-            _ipython_junk_meths,
-            _final_meths,
-            _custom_meths
-        )
-    )
+    _reserved = frozenset({_mappingproxy_prop}.union(
+        _attr_meths,
+        _dic_meths,
+        _ipython_junk_meths,
+        _final_meths,
+        _custom_meths
+    ))
     _dics = Wkd()
     _token = object()
     _depth = 0
@@ -226,7 +227,7 @@ class FilterDictMeta(ABCMeta):
     def __new__(mcs, clsname, bases, ns):
         base, dics = bases[0], mcs._dics
         base_ns = vars(base)
-        kc_s, cnt_eg_s = mcs._abstract_meths
+        kc_name, counter_eg_name = mcs._abstract_meths
 
         if base is MutableMapping:
             #  We're at the ABC
@@ -262,7 +263,7 @@ class FilterDictMeta(ABCMeta):
                 f.__doc__ = doc
                 f.__module__ = mcs.__module__
                 f.__qualname__ = f'{clsname}.{m}'
-        else:
+        else:  # clsname is a concrete subclass
             # see which of the "final" methods have been overridden
             overriden = set(mcs._final_meths) & set(ns)
             if overriden:
@@ -271,17 +272,17 @@ class FilterDictMeta(ABCMeta):
                     f'not be be overriden. Doing so may break the constraint '
                     f'guarantees of the inheritance tree.'
                 )
-            f_base_kc = base_ns[kc_s]
+            f_base_kc = base_ns[kc_name]
             if not callable(f_base_kc):
                 f_base_kc = f_base_kc.__func__
 
-        if kc_s in ns:
-            f_kc = ns[kc_s].__func__
-            cnt_eg_val = ns[cnt_eg_s].__func__()
-            tmp = f'.{kc_s}({cnt_eg_s}) must be'
-            if not f_base_kc(cnt_eg_val):
+        if kc_name in ns:
+            f_kc = ns[kc_name].__func__
+            counter_eg_val = ns[counter_eg_name].__func__()
+            tmp = f'.{kc_name}({counter_eg_name}) must be'
+            if not f_base_kc(counter_eg_val):
                 raise ValueError(f'{base}{tmp} True')
-            if f_kc(cnt_eg_val):
+            if f_kc(counter_eg_val):
                 raise ValueError(f'{clsname}{tmp} False')
 
             # Conjunction of cls.keycheck(k) with basecls.keycheck(k) (after
@@ -294,11 +295,11 @@ class FilterDictMeta(ABCMeta):
                 return (
                     k not in mcs._reserved and f_base_kc(k) and f_kc(k)
                 )
-            ns[kc_s] = staticmethod(update_wrapper(_total_kc, f_kc))
+            ns[kc_name] = staticmethod(update_wrapper(_total_kc, f_kc))
 
         else:
-            ns[kc_s] = f_base_kc
-            ns[cnt_eg_s] = base_ns[cnt_eg_s]
+            ns[kc_name] = f_base_kc
+            ns[counter_eg_name] = base_ns[counter_eg_name]
 
         ns[mcs._mappingproxy_prop] = property(
             fget=lambda self: MappingProxyType(dics[self]),
@@ -314,7 +315,6 @@ class FilterDictMeta(ABCMeta):
 # Save typing and make refactoring easier by storing the metaclass in a local
 _m = FilterDictMeta
 _d = _m._dics
-_tok = _m._token
 
 
 class FilterDict(MutableMapping, metaclass=_m):
@@ -344,7 +344,7 @@ class FilterDict(MutableMapping, metaclass=_m):
             # this should always be True, as it is basically ``not set()``...
             return not {k}.clear()
         # ...unless there is an error (eg unhashable k)
-        except (KeyError,TypeError):
+        except (KeyError, TypeError):
             return False
 
     @staticmethod
@@ -353,7 +353,10 @@ class FilterDict(MutableMapping, metaclass=_m):
         """
         Provides a "counter-example", ie an object that is considered a valid
         key for the parent class but is invalid for the concrete subclass.
-        :return:
+        This abstract method has a default implementation in the ABC that
+        returns an unhashable object (an empty set).
+
+        :return: The counter-example.
         """
         return set()
 
@@ -378,9 +381,9 @@ class FilterDict(MutableMapping, metaclass=_m):
     def update(self, *args, **kwargs):
         """
         Updates dictionary with elements from sequences or mappings. Similar
-        to ``dict.update`` but with an extended signature that allows ``args`` to be a mixed sequence of sequences or mappings. In
-        other words, each elements in ``args`` is a valid input for
-        ``dict.update``.
+        to ``dict.update`` but with an extended signature that allows ``args``
+        to be a mixed sequence of sequences or mappings. In other words, each
+        elements in ``args`` is a valid input for ``dict.update``.
 
         :param args: Sequence of ``Mapping``s, ``Sequence``s of key-value
             pairs or ``ItemView``s, in any order. Each element ``e`` in
@@ -444,8 +447,11 @@ class StrDict(FilterDict):
     @staticmethod
     def counter_eg():
         """
+        Provides a "counter-example", ie an object that is considered a valid
+        key for the parent class (in this case the ABC itself) but is invalid
+        for the concrete subclass.
 
-        :return: ``None`` (just a value
+        :return: ``None`` (any non-string object would do).
         """
         return
 
@@ -461,22 +467,25 @@ class NsDict(StrDict):
         Determines whether an object is a valid identifier, meaning that it's
         a string that starts with a letter or underscore and is followed by
         zero or more letters, numbers or underscores. The requirement for
-        being a string is implicit by its inheriting from StrDict and does not
-        need to be encoded (by something like isinstance(k, str)) here.
+        being a string is implicit by its inheriting from ``StrDict`` and does
+        not need to be encoded (by something like ``isinstance(k, str)``) here.
 
-        :param k: The key to be checked
+        :param k: The key to be checked.
 
-        :return: Boolean result
+        :return: True if input is a usable (ie non-keyword) identifier.
         """
         return k.isidentifier() and not _iskeyword(k)
 
     @staticmethod
     def counter_eg():
         """
+        Provides a "counter-example", ie an object that is considered a valid
+        key for the parent class (in this case ``StrDict``) but is invalid
+        for the concrete subclass ``NsDict``.
 
         :return: The empty string, which is a valid key for StrDict but not
-        a valid attribute name (and thus key in a namespace dictionary, such
-        as obj.__dict__)
+        a valid attribute name (which is typically a key in a namespace
+        dictionary, such as ``obj.__dict__``)
         """
         return ''
 
