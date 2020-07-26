@@ -7,18 +7,16 @@
 
 .. moduleauthor:: Greg Sotiropoulos <greg.sotiropoulos@gmail.com>
 
-Dictionary Abstract Base Class (ABC), ie one that derives from
-``collections.abc.MutableMapping``. This ABC provides a systematic way for
+Dictionary Abstract Base Class (ABC) deriving from
+``collections.abc.MutableMapping``. The ABC provides a systematic way for
 subclasses to impose constraints on the kinds of keys that should be
 considered valid (beyond the default constraint of a key being hashable and
-immutable).
-
-key/value pairs where the key violates the constraints cannot be inserted in
-the dictionary (unless one really goes out of their way to do so). Constraints
-are specified via the ``keycheck`` method, although a second method
-``counter_eg`` is also required (see relevant documentation for more on this).
-In cases of invalid keys (any ``k`` for which ``dic.keycheck(k) == False``),
-use of ``dic[k] = v`` (or ``dic.setdefault(k, v)``) will raise a ``TypeError``
+immutable). Items whose key violates the constraints cannot be inserted in the
+dictionary (unless one really goes out of their way to do so). Constraints are
+specified via the ``keycheck`` method, although a second method ``counter_eg``
+is also required (see relevant documentation for more on this). In cases of
+invalid keys (any ``k`` for which ``dic.keycheck(k) == False``), use of
+``dic[k] = v`` (or ``dic.setdefault(k, v)``) will raise a ``TypeError``
 whereas ``dic.update(arg)`` will silently drop invalid items in ``arg``.
 
 The module also provides a few concrete subclasses that can be useful either:
@@ -28,11 +26,10 @@ The module also provides a few concrete subclasses that can be useful either:
 
 Notes:
     1. The module also defines a custom metaclass that derives from
-       ``ABCMeta``. This should be transparent to client code that does not dig
-       too deeply into the module's inner workings. For example, potential
-       issues might arise due to metaclass conflicts, eg in cases where
-       subclassing modules define their own metaclass or in multiple
-       inheritance scenarios.
+       ``ABCMeta``. This should be transparent to client code, although it
+       should be noted that issues might arise due to metaclass conflicts (in
+       cases where a FilterDict subclass specifies its own custom metaclass)
+       or in some multiple inheritance scenarios.
     2. A read-only view of (ie a ``MappingProxy`` wrapped around) the underlying
        dictionary is provided via the ``proxy`` attribute. This may allow for
        faster reads (calls to ``__getitem__``) and iteration as it bypasses
@@ -57,7 +54,8 @@ from weakref import WeakKeyDictionary as Wkd
 
 logger = logging.getLogger(__name__)
 __docformat__ = 'restructuredtext'
-__version__ = 1, 0, 1
+__author__ = 'Greg Sotiropoulos <greg.sotiropoulos@gmail.com>'
+__version__ = 1, 0, 2
 
 
 def _iskeyword(k):
@@ -387,7 +385,7 @@ class FilterDict(MutableMapping, metaclass=_m):
 
         :param args: Sequence of ``Mapping``s, ``Sequence``s of key-value
             pairs or ``ItemView``s, in any order. Each element ``e`` in
-            ``args`` is valid if it is accepted by dict.update.
+            ``args`` must be of a type accepted by dict.update.
 
         :param kwargs: Keywords are validated with ``keycheck``; those items
             that fail the test are silently excluded from the dictionary.
@@ -402,7 +400,7 @@ class FilterDict(MutableMapping, metaclass=_m):
                 pass
         tmp_upd(kwargs)
         try:
-            # OrderedDict.popitem called with the optional argument False
+            # OrderedDict.popitem called with the optional argument ``False``
             # allows for the dictionary to be constructed as the temporary
             # mapping is destroyed. This keeps memory consumption at a minimum.
             _d[self].update(
@@ -484,8 +482,7 @@ class NsDict(StrDict):
         for the concrete subclass ``NsDict``.
 
         :return: The empty string, which is a valid key for StrDict but not
-        a valid attribute name (which is typically a key in a namespace
-        dictionary, such as ``obj.__dict__``)
+            a valid attribute name.
         """
         return ''
 
@@ -493,14 +490,13 @@ class NsDict(StrDict):
         cls = type(self)
         try:
             _m._depth += 1
-            ind_l = '\t' * _m._depth
-            ind_s = ind_l[:-1]
-            kwa = f', \n{ind_l}'.join(starmap(
+            ind_l = '\n' + '\t'*_m._depth
+            kwa = f', {ind_l}'.join(starmap(
                 lambda k, v: f'{k}={v!r}',
                 _d[self].items()
             ))
             if kwa:
-                kwa = f'\n{ind_l}{kwa}\n{ind_s}'
+                kwa = f'{ind_l}{kwa}{ind_l[:-1]}'
             _m._depth -= 1
             return f'{cls.__name__}({kwa})'
         finally:
@@ -545,10 +541,12 @@ class NestedNsDict(NsDict):
     True
 
     """
+    _parents = Wkd()
+
     def __getattr__(self, k):
         parents = __class__._parents
         if k == 'parent':
-            return parents.get(self)
+            return parents.setdefault(self, None)
         try:
             return self[k]
         except KeyError:
@@ -563,9 +561,3 @@ class NestedNsDict(NsDict):
         if k == 'parent':
             raise ValueError(f"cannot use reserved name '{k}'")
         super().__setattr__(k, v)
-
-    def __init__(self, *a, **kwa):
-        c = __class__
-        if not hasattr(c, '_parents'):
-            c._parents = Wkd()
-        c._parents[self] = None

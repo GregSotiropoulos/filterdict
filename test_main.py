@@ -13,6 +13,9 @@ _d = _meta._dics
 
 
 class DummyDict(fd.FilterDict):
+    """
+    Trivial FilterDict subclass. Accepts any key except 42.
+    """
     @staticmethod
     def keycheck(k):
         return k != 42
@@ -26,7 +29,7 @@ class DummyClass:
     pass
 
 
-class TestValidUse(ut.TestCase):
+class TestFilterDictValid(ut.TestCase):
     def setUp(self):
         def a():
             return (
@@ -57,9 +60,7 @@ class TestValidUse(ut.TestCase):
         # expected valid keys for NsDict
         self.nsdic_keys = frozenset(sk[1:])
         self.nsdic = fd.NsDict(*a(), **kw)
-
         self.nnsdic = fd.NestedNsDict(*a(), **kw)
-
         self.dictdic = d = {}
         for e in a():
             try:
@@ -73,33 +74,25 @@ class TestValidUse(ut.TestCase):
     def test_init_DummyDict(self):
         self.assertEqual(self.dictdic, _d[self.dummydic])
 
-    def test_init_StrDict(self):
-        self.assertEqual(self.strdic.keys(), set(self.strdic_keys))
-
-    def test_init_NsDict(self):
-        self.assertEqual(self.nsdic.keys(), set(self.nsdic_keys))
-
     def test_Dummy_setitem(self):
         d = self.dummydic
         d['a'] = 42
-        self.assertEqual(d['a'], 42)
-
-    def test_Ns_getattr(self):
-        dd = self.nsdic
-        self.assertEqual(dd.a, 4)
-        self.assertEqual(getattr(dd, 'a', None), 4)
-
-    def test_Ns_setattr(self):
-        d = self.nsdic
-        d.a = 42
         self.assertEqual(d['a'], 42)
 
     def test_Dummy_reserved(self):
         for r in _meta._reserved:
             self.assertNotIn(r, self.dummydic)
 
+    # StrDict
+    def test_init_StrDict(self):
+        self.assertEqual(self.strdic.keys(), set(self.strdic_keys))
+
     def test_Str_lt_Dummy(self):
         self.assertLess(self.strdic.keys(), self.dummydic.keys())
+
+    # NsDict
+    def test_init_NsDict(self):
+        self.assertEqual(self.nsdic.keys(), set(self.nsdic_keys))
 
     def test_Ns_lt_Str(self):
         self.assertLess(self.nsdic.keys(), self.strdic.keys())
@@ -111,6 +104,17 @@ class TestValidUse(ut.TestCase):
         with self.assertRaises(AttributeError):
             aa = self.nsdic.aa
 
+    def test_Ns_getattr(self):
+        dd = self.nsdic
+        self.assertEqual(dd.a, 4)
+        self.assertEqual(getattr(dd, 'a', None), 4)
+
+    def test_Ns_setattr(self):
+        d = self.nsdic
+        d.a = 42
+        self.assertEqual(d['a'], 42)
+
+    # NestedNsDict
     def test_Nns_get_missing_attr(self):
         self.assertEqual(self.nnsdic.aa, {})
 
