@@ -45,12 +45,14 @@ from collections import defaultdict, OrderedDict
 from collections.abc import *
 from abc import ABCMeta, abstractmethod
 import logging
-from inspect import signature
 from types import MappingProxyType
+import inspect as ins
 from copy import deepcopy
 import re
 from weakref import WeakKeyDictionary as Wkd
 
+# my stuff
+from tools.misc import getsignature, iskeyword
 
 logger = logging.getLogger(__name__)
 __docformat__ = 'restructuredtext'
@@ -58,105 +60,7 @@ __author__ = 'Greg Sotiropoulos <greg.sotiropoulos@gmail.com>'
 __version__ = 1, 0, 2
 
 
-def _iskeyword(k):
-    """
-    Determines whether a string is a Python keyword.
 
-    :param k: The string to be tested.
-    """
-    return k in {
-        'False',
-        'None',
-        'True',
-        'and',
-        'as',
-        'assert',
-        'async',
-        'await',
-        'break',
-        'class',
-        'continue',
-        'def',
-        'del',
-        'elif',
-        'else',
-        'except',
-        'finally',
-        'for',
-        'from',
-        'global',
-        'if',
-        'import',
-        'in',
-        'is',
-        'lambda',
-        'nonlocal',
-        'not',
-        'or',
-        'pass',
-        'raise',
-        'return',
-        'try',
-        'while',
-        'with',
-        'yield'
-    }
-
-
-def _getsignature(routine, *implementors, default=None):
-    """
-    Retrieves the signature of a callable (method/function/etc). Utility
-    function that slightly extends the ``signature`` method of the ``inspect``
-    module and tries some alternatives when the latter fails (which it does
-    with certain ``dict`` methods, for example). Apart from the signature, the
-    built-in/stdlib class that contained an implementation of ``routine`` and,
-    when possible, the docstring are also retrieved.
-
-    :param routine: Callable whose signature is to be determined.
-
-    :param implementors: Tuple of classes that contain methods of the same
-        name as the callable. These serve as a fallback in case the callable
-        does not contain enough metadata to accurately retrieve its signature.
-
-    :param default: Default signature, which is ``('self', '*args', '**kw``),
-        unless ``routine`` is a ``classmethod`` or ``staticmethod``, in which
-        case the first element, ``'self'``, is omitted.
-
-    :return: A 3-tuple. The first element is the signature, which is itself
-        a tuple of strings containing the names (and, when
-        present, the default values) of all arguments. The second
-        element is the implementation (if additional ones are supplied,
-        otherwise ``None``) from which the signature was retrieved. The last
-        element is the ``routine``'s docstring (when available).
-    """
-    if not callable(routine):
-        raise TypeError('First argument must be a callable.')
-    name, sig = routine.__name__, None
-
-    if hasattr(routine, '__objclass__'):
-        implementors = routine.__objclass__, *implementors
-
-    for c in implementors:
-        try:
-            f = getattr(c, name)
-            doc = f.__doc__
-            if not doc:
-                raise AttributeError
-            if sig:
-                return sig, c, doc
-            sigobj = signature(f)
-            sig = sigobj.parameters.values()
-            sig = *map(lambda s: re.sub(r'<.+?>', 'None', str(s)), sig),
-            return sig, c, doc
-        except (AttributeError, ValueError):
-            pass
-
-    if default is None:
-        default = (*{
-            classmethod: ('cls',),
-            staticmethod: ()
-        }.get(type(routine), ('self',)), '*args', '**kwargs')
-    return default, None, None
 
 
 class FilterDictMeta(ABCMeta):
@@ -241,7 +145,7 @@ class FilterDictMeta(ABCMeta):
                 if m == '__reversed__' and sys.version_info < (3, 8):
                     continue
                 tmp_ns[m] = dic_bound_meth = f'dict.{m}(dics[self], '
-                sig, source_cls, doc = _getsignature(
+                sig, source_cls, doc = getsignature(
                     vars(dict)[m], OrderedDict, MutableMapping,
                     Mapping, defaultdict
                 )
@@ -369,7 +273,7 @@ class FilterDict(MutableMapping, metaclass=_m):
 
     def __str__(self):
         kwa = ', \n\t'.join(starmap(
-            lambda k, v: f'{k!r}: {v!r}',
+            lambda k, v: f'{k}: {v}',
             self.items()
         ))
         if kwa:
@@ -390,8 +294,8 @@ class FilterDict(MutableMapping, metaclass=_m):
         :param kwargs: Keywords are validated with ``keycheck``; those items
             that fail the test are silently excluded from the dictionary.
         """
-        c = type(self)
-        kc, tmp = c.keycheck, OrderedDict()
+        cls = type(self)
+        kc, tmp = cls.keycheck, OrderedDict()
         tmp_upd, tmp_popitem = tmp.update, tmp.popitem,
         for a in args:
             try:
@@ -410,8 +314,8 @@ class FilterDict(MutableMapping, metaclass=_m):
             pass
 
     def __setitem__(self, k, v):
-        c = type(self)
-        if not c.keycheck(k):
+        cls = type(self)
+        if not cls.keycheck(k):
             raise TypeError(f"Invalid key '{k}'")
         _d[self][k] = v
 
@@ -472,7 +376,7 @@ class NsDict(StrDict):
 
         :return: True if input is a usable (ie non-keyword) identifier.
         """
-        return k.isidentifier() and not _iskeyword(k)
+        return k.isidentifier() and not iskeyword(k)
 
     @staticmethod
     def counter_eg():
@@ -492,7 +396,7 @@ class NsDict(StrDict):
             _m._depth += 1
             ind_l = '\n' + '\t'*_m._depth
             kwa = f', {ind_l}'.join(starmap(
-                lambda k, v: f'{k}={v!r}',
+                lambda k, v: f'{k}={v}',
                 _d[self].items()
             ))
             if kwa:
@@ -543,19 +447,23 @@ class NestedNsDict(NsDict):
     """
     _parents = Wkd()
 
-    def __getattr__(self, k):
-        parents = __class__._parents
+    def __getattribute__(self, k):
+        cls = type(self)
         if k == 'parent':
-            return parents.setdefault(self, None)
+            return cls._parents.setdefault(self)
         try:
-            return self[k]
-        except KeyError:
-            # if k is missing, create a new instance. As before, we use
-            # type(self)(), not __class__(), as the latter would not work
-            # correctly if self is an instance of a subclass of NestedNsDict
-            self[k] = d = type(self)()
-            parents[d] = self
-            return d
+            return object.__getattribute__(self, k)
+        except AttributeError:
+            try:
+                return self[k]
+            except KeyError:
+                # if k is missing, create a new instance. As before, we use
+                # ``type(self)()``, not ``__class__()``, as the latter would
+                # not work correctly if ``type(self)`` is a subclass of
+                # NestedNsDict
+                self[k] = d = cls()
+                cls._parents[d] = self
+                return d
 
     def __setattr__(self, k, v):
         if k == 'parent':
