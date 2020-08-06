@@ -24,49 +24,105 @@ The module also provides a few concrete subclasses that can be useful either:
     - as base classes for other more useful subclasses
     - as guides on how to subclass the ABC to create your own dictionary types
 
-Notes:
-    1. The module also defines a custom metaclass that derives from
-       ``ABCMeta``. This should be transparent to client code, although it
-       should be noted that issues might arise due to metaclass conflicts (in
-       cases where a FilterDict subclass specifies its own custom metaclass)
-       or in some multiple inheritance scenarios.
-    2. A read-only view of (ie a ``MappingProxy`` wrapped around) the underlying
+Notes
+=====
+    1. The module defines a custom metaclass that derives from ``ABCMeta``.
+       This should be transparent to client code, although it should be noted
+       that issues might arise due to metaclass conflicts (in cases where a
+       FilterDict subclass specifies its own custom metaclass) or in some
+       multiple inheritance scenarios.
+    2. A readonly view of (ie a ``MappingProxy`` wrapped around) the underlying
        dictionary is provided via the ``proxy`` attribute. This may allow for
        faster reads (calls to ``__getitem__``) and iteration as it bypasses
        custom methods.
 """
 
-__all__ = 'FilterDict', 'StrDict', 'NsDict', 'NestedNsDict'
+__all__ = 'FilterDict', 'StrDict', 'NsDict', 'NestedNsDict', 'getsignature'
 
 import sys
 from functools import update_wrapper
-from itertools import starmap, repeat
+from itertools import repeat
 from collections import defaultdict, OrderedDict
 from collections.abc import *
 from abc import ABCMeta, abstractmethod
 import logging
 from types import MappingProxyType
-import inspect as ins
 from copy import deepcopy
 import re
 from weakref import WeakKeyDictionary as Wkd
+from keyword import iskeyword
+from inspect import signature
 
-# my stuff
-from tools.misc import getsignature, iskeyword
+# Project where I keep various tools/utils
+# from tools.misc import getsignature
 
 logger = logging.getLogger(__name__)
-__docformat__ = 'restructuredtext'
+__docformat__ = 'reStructuredText'
 __author__ = 'Greg Sotiropoulos <greg.sotiropoulos@gmail.com>'
 __version__ = 1, 0, 2
 
 
+def getsignature(routine, *implementors, default=None):
+    """Retrieves the signature of a callable (method/function/etc).
 
+    Utility function that slightly extends the ``signature`` method of the
+    ``inspect`` module and tries some alternatives when the latter fails (which
+    it does with certain ``dict`` methods, for example). Apart from the
+    signature, the built-in/stdlib class that contained an implementation of
+    ``routine`` and, when possible, the docstring are also retrieved.
+
+    :param routine: Callable whose signature is to be determined.
+
+    :param implementors: Tuple of classes that contain methods of the same
+        name as the callable. These serve as a fallback in case the callable
+        does not contain enough metadata to accurately retrieve its signature.
+
+    :param default: Default signature, which is ``('self', '*args', '**kw)``,
+        unless ``routine`` is a ``classmethod`` or ``staticmethod``, in which
+        case the first element, ``'self'``, is omitted.
+
+    :return: A 3-tuple. The first element is the signature, which is itself
+        a list of strings containing the names (and, when present, the default
+        values) of all arguments. The second element is the implementation
+        (if additional ones are supplied, otherwise ``None``) from which the
+        signature was retrieved. The last element is the ``routine``'s
+        docstring (when available).
+    """
+    if not callable(routine):
+        raise TypeError('First argument must be a callable.')
+    name, sig = routine.__name__, None
+
+    if hasattr(routine, '__objclass__'):
+        implementors = routine.__objclass__, *implementors
+
+    for c in implementors:
+        try:
+            f = getattr(c, name)
+            doc = f.__doc__
+
+            if sig:
+                return sig, c, doc
+            sigobj = signature(f)
+            sig = sigobj.parameters.values()
+            sig = [re.sub(r'<.+?>', 'None', str(s)) for s in sig]
+            return sig, c, doc
+        except (AttributeError, ValueError):
+            pass
+
+    if default is None:
+        default = (
+            *{
+                classmethod: ('cls',),
+                staticmethod: ()
+            }.get(type(routine), ('self',)),
+            '*args',
+            '**kwargs'
+        )
+    return default, None, None
 
 
 class FilterDictMeta(ABCMeta):
-    """
-    Metaclass for the FilterDict ABC.
-    """
+    """Metaclass for the FilterDict ABC."""
 
     # ***** CONSTANTS: START *****
 
@@ -129,7 +185,7 @@ class FilterDictMeta(ABCMeta):
     def __new__(mcs, clsname, bases, ns):
         base, dics = bases[0], mcs._dics
         base_ns = vars(base)
-        kc_name, counter_eg_name = mcs._abstract_meths
+        kc_name, counter_eg_name = mcs._abstract_meths[:2]
 
         if base is MutableMapping:
             #  We're at the ABC
@@ -167,7 +223,7 @@ class FilterDictMeta(ABCMeta):
                 f.__qualname__ = f'{clsname}.{m}'
         else:  # clsname is a concrete subclass
             # see which of the "final" methods have been overridden
-            overriden = set(mcs._final_meths) & set(ns)
+            overriden = set(mcs._final_meths).intersection(ns)
             if overriden:
                 logger.warning(
                     f'Dictionary setter methods {", ".join(overriden)} should '
@@ -189,14 +245,13 @@ class FilterDictMeta(ABCMeta):
 
             # Conjunction of cls.keycheck(k) with basecls.keycheck(k) (after
             # checking k against a list of reserved names). This allows us to
-            # specify only the tests that differentiate cls from basecls. This
-            # avoids repetition of code (cls.keycheck would otherwise always
+            # specify only the tests that differentiate cls from basecls, thus
+            # avoiding code repetition (cls.keycheck would otherwise always
             # have to call super().keycheck explictly before the actual,
-            # subclass-specific checks.
+            # subclass-specific checks).
             def _total_kc(k):
-                return (
-                    k not in mcs._reserved and f_base_kc(k) and f_kc(k)
-                )
+                return k not in mcs._reserved and f_base_kc(k) and f_kc(k)
+
             ns[kc_name] = staticmethod(update_wrapper(_total_kc, f_kc))
 
         else:
@@ -220,17 +275,16 @@ _d = _m._dics
 
 
 class FilterDict(MutableMapping, metaclass=_m):
-    """
-    Abstract Base Class (ABC) that represents a mutable (ie non-read-only)
+    """Abstract Base Class (ABC) that represents a mutable (ie non-read-only)
     mapping (aka dictionary) some utility class/static methods and, more
     importantly, greater flexibility in constructor parameter specification
     (see the documentation for ``update``).
     """
+
     @staticmethod
     @abstractmethod
     def keycheck(k):
-        """
-        Checks whether ``k`` is a valid key for the dictionary. This is an
+        """Checks whether ``k`` is a valid key for the dictionary. This is an
         abstract method that nevertheless provides a default implementation
         in which any ``k`` that is a valid dictionary key (hashable, immutable)
         passes the test. Subclasses are *required* to override this method to
@@ -252,9 +306,8 @@ class FilterDict(MutableMapping, metaclass=_m):
     @staticmethod
     @abstractmethod
     def counter_eg():
-        """
-        Provides a "counter-example", ie an object that is considered a valid
-        key for the parent class but is invalid for the concrete subclass.
+        """Provides a "counter-example", ie an object considered a valid key
+        for the parent class but is invalid for the concrete subclass.
         This abstract method has a default implementation in the ABC that
         returns an unhashable object (an empty set).
 
@@ -267,34 +320,37 @@ class FilterDict(MutableMapping, metaclass=_m):
         _d[inst] = {}
         # If you're tempted to change this to ``inst.update(*args, **kwargs)``,
         # don't. Doing so will most likely break custom implementations of
-        # __getattribute__ and/or __getattr__ in subclasses.
+        # __getattribute__ and/or __getattr__ in subclasses. Same goes for
+        # __class__ vs cls: the latter should not be used as it would try to
+        # call a subclass implementation of ``update`` and not the one defined
+        # in this class (and we don't want this in this case).
         __class__.update(inst, *args, **kwargs)
         return inst
 
     def __str__(self):
-        kwa = ', \n\t'.join(starmap(
-            lambda k, v: f'{k}: {v}',
-            self.items()
-        ))
+        kwa = ', \n\t'.join(f'{k}: {v}' for k, v in self.items())
         if kwa:
             kwa = f'\n\t{kwa}\n'
         return f'{type(self).__name__}({{{kwa}}})'
 
-    def update(self, *args, **kwargs):
-        """
-        Updates dictionary with elements from sequences or mappings. Similar
-        to ``dict.update`` but with an extended signature that allows ``args``
-        to be a mixed sequence of sequences or mappings. In other words, each
-        elements in ``args`` is a valid input for ``dict.update``.
+    def __repr__(self):
+        return re.sub(r'[\t\n]+', '', str(self))
 
-        :param args: Sequence of ``Mapping``s, ``Sequence``s of key-value
-            pairs or ``ItemView``s, in any order. Each element ``e`` in
-            ``args`` must be of a type accepted by dict.update.
+    def update(self, *args, **kwargs):
+        """Updates dictionary with elements from sequences or mappings.
+
+        Similar to ``dict.update`` but with an extended signature that allows
+        ``args`` to be a mixed sequence of sequences or mappings. In other
+        words, each elements in ``args`` is a valid input for ``dict.update``.
+
+        :param args: Sequence of ``Mapping``s, ``Sequence``s of key-value pairs
+            or ``ItemView``s, in any order. Each element ``e`` in ``args``
+            must be of a type accepted by ``dict.update``.
 
         :param kwargs: Keywords are validated with ``keycheck``; those items
             that fail the test are silently excluded from the dictionary.
         """
-        cls = type(self)
+        cls, dic = type(self), _d[self]
         kc, tmp = cls.keycheck, OrderedDict()
         tmp_upd, tmp_popitem = tmp.update, tmp.popitem,
         for a in args:
@@ -307,7 +363,7 @@ class FilterDict(MutableMapping, metaclass=_m):
             # OrderedDict.popitem called with the optional argument ``False``
             # allows for the dictionary to be constructed as the temporary
             # mapping is destroyed. This keeps memory consumption at a minimum.
-            _d[self].update(
+            dic.update(
                 (k, v) for k, v in map(tmp_popitem, repeat(False)) if kc(k)
             )
         except KeyError:
@@ -335,14 +391,18 @@ class FilterDict(MutableMapping, metaclass=_m):
 
 
 class StrDict(FilterDict):
-    """
-    Dictionary that only accepts strings as keys.
-    """
+    """Dictionary that only accepts strings as keys."""
+
     @staticmethod
     def keycheck(k):
-        """
-        Checks whether ``k`` is a valid key for the dictionary. In this class,
-        any string is considered a valid key, and anything else an invalid one.
+        """Checks whether ``k`` is a valid key for the dictionary.
+
+        For :class:`StrDict`, any string is considered a valid key, and anything
+        else an invalid one.
+
+        :param k: The key to be checked.
+
+        :return: True iff input is a string.
         """
         return isinstance(k, str)
 
@@ -359,31 +419,29 @@ class StrDict(FilterDict):
 
 
 class NsDict(StrDict):
-    """
-    Namespace-like dictionary, similar to ``SimpleNamespace`` from the
+    """Namespace-like dictionary, similar to ``SimpleNamespace`` from the
     ``types`` module.
     """
+
     @staticmethod
     def keycheck(k):
-        """
-        Determines whether an object is a valid identifier, meaning that it's
-        a string that starts with a letter or underscore and is followed by
-        zero or more letters, numbers or underscores. The requirement for
-        being a string is implicit by its inheriting from ``StrDict`` and does
-        not need to be encoded (by something like ``isinstance(k, str)``) here.
+        """Determines whether an object is a valid identifier, meaning that it
+        is a string that starts with a letter or underscore, followed by zero
+        or more letters, numbers or underscores. The requirement for being a
+        string is implicit by its inheriting from ``StrDict`` and does not need
+        to be encoded (by something like ``isinstance(k, str)``) here.
 
         :param k: The key to be checked.
 
-        :return: True if input is a usable (ie non-keyword) identifier.
+        :return: True iff input is a usable (ie non-keyword) identifier.
         """
         return k.isidentifier() and not iskeyword(k)
 
     @staticmethod
     def counter_eg():
-        """
-        Provides a "counter-example", ie an object that is considered a valid
-        key for the parent class (in this case ``StrDict``) but is invalid
-        for the concrete subclass ``NsDict``.
+        """Provides a "counter-example", ie an object that is considered a
+        valid key for the parent class (in this case ``StrDict``) but is
+        invalid for the concrete subclass ``NsDict``.
 
         :return: The empty string, which is a valid key for StrDict but not
             a valid attribute name.
@@ -395,19 +453,13 @@ class NsDict(StrDict):
         try:
             _m._depth += 1
             ind_l = '\n' + '\t'*_m._depth
-            kwa = f', {ind_l}'.join(starmap(
-                lambda k, v: f'{k}={v}',
-                _d[self].items()
-            ))
+            kwa = f', {ind_l}'.join(f'{k}={v}' for k, v in _d[self].items())
             if kwa:
                 kwa = f'{ind_l}{kwa}{ind_l[:-1]}'
             _m._depth -= 1
             return f'{cls.__name__}({kwa})'
         finally:
             _m._depth = 0
-
-    def __repr__(self):
-        return re.sub(r'[\t\n]+', '', str(self))
 
     def __getattr__(self, k):
         try:
@@ -419,18 +471,19 @@ class NsDict(StrDict):
         try:
             self[k] = v
         except KeyError:
-            raise AttributeError(k)
+            raise AttributeError(k) from None
 
     def __delattr__(self, k):
         try:
             del self[k]
         except KeyError:
-            raise AttributeError(k)
+            raise AttributeError(k) from None
 
 
 class NestedNsDict(NsDict):
-    """
-    Namespace-like dictionary that also supports chained assignment, eg
+    """Namespace-like dictionary that also supports chained assignment.
+
+    Example:
     >>> nns = NestedNsDict()
     >>> nns.a.b.c = 42
     >>> nns.a.b.c
@@ -445,6 +498,7 @@ class NestedNsDict(NsDict):
     True
 
     """
+
     _parents = Wkd()
 
     def __getattribute__(self, k):

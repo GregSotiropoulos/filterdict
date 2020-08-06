@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 
-"""
-Unit tests for the filterdict module.
-"""
+"""Unit tests for the filterdict module."""
 
 import unittest as ut
 import filterdict as fd
@@ -13,9 +11,7 @@ _d = _meta._dics
 
 
 class DummyDict(fd.FilterDict):
-    """
-    Trivial FilterDict subclass. Accepts any key except 42.
-    """
+    """Trivial FilterDict subclass. Accepts any key except 42."""
     @staticmethod
     def keycheck(k):
         return k != 42
