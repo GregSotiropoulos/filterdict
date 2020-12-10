@@ -59,7 +59,7 @@ from inspect import signature
 logger = logging.getLogger(__name__)
 __docformat__ = 'reStructuredText'
 __author__ = 'Greg Sotiropoulos <greg.sotiropoulos@gmail.com>'
-__version__ = 1, 0, 2
+__version__ = 1, 0, 3
 
 
 def getsignature(routine, *implementors, default=None):
@@ -83,10 +83,10 @@ def getsignature(routine, *implementors, default=None):
 
     :return: A 3-tuple. The first element is the signature, which is itself
         a list of strings containing the names (and, when present, the default
-        values) of all arguments. The second element is the implementation
-        (if additional ones are supplied, otherwise ``None``) from which the
-        signature was retrieved. The last element is the ``routine``'s
-        docstring (when available).
+        values) of all arguments. The second element is the class implementing
+        the method whose signature was retrieved if ``implementors`` is
+        specified; otherwise it is ``None``. The last element is the
+        ``routine``'s docstring (when available).
     """
     if not callable(routine):
         raise TypeError('First argument must be a callable.')
@@ -198,14 +198,15 @@ class FilterDictMeta(ABCMeta):
 
             # copy implementations of most methods from respective dict methods
             for m in mcs._dic_meths:
+                # __reversed__ was introduced in Python 3.8
                 if m == '__reversed__' and sys.version_info < (3, 8):
                     continue
                 tmp_ns[m] = dic_bound_meth = f'dict.{m}(dics[self], '
-                sig, source_cls, doc = getsignature(
+                sig, _, doc = getsignature(
                     vars(dict)[m], OrderedDict, MutableMapping,
                     Mapping, defaultdict
                 )
-                selfsig = ', '.join(sig)
+                selfsig = ', '.join(sig)  # ``sig`` is a tuple of strings
                 dicparams = ', '.join(
                     map(lambda s: s.partition('=')[0], sig[1:])
                 )
