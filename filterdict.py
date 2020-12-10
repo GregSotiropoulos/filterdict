@@ -63,7 +63,8 @@ __version__ = 1, 0, 3
 
 
 def getsignature(routine, *implementors, default=None):
-    """Retrieves the signature of a callable (method/function/etc).
+    """
+    Retrieves the signature of a callable (method/function/etc).
 
     Utility function that slightly extends the ``signature`` method of the
     ``inspect`` module and tries some alternatives when the latter fails (which
@@ -72,15 +73,12 @@ def getsignature(routine, *implementors, default=None):
     ``routine`` and, when possible, the docstring are also retrieved.
 
     :param routine: Callable whose signature is to be determined.
-
     :param implementors: Tuple of classes that contain methods of the same
         name as the callable. These serve as a fallback in case the callable
         does not contain enough metadata to accurately retrieve its signature.
-
     :param default: Default signature, which is ``('self', '*args', '**kw)``,
         unless ``routine`` is a ``classmethod`` or ``staticmethod``, in which
         case the first element, ``'self'``, is omitted.
-
     :return: A 3-tuple. The first element is the signature, which is itself
         a list of strings containing the names (and, when present, the default
         values) of all arguments. The second element is the class implementing
@@ -222,7 +220,7 @@ class FilterDictMeta(ABCMeta):
                 f.__doc__ = doc
                 f.__module__ = mcs.__module__
                 f.__qualname__ = f'{clsname}.{m}'
-        else:  # clsname is a concrete subclass
+        else:  # `clsname` is a concrete subclass
             # see which of the "final" methods have been overridden
             overriden = set(mcs._final_meths).intersection(ns)
             if overriden:
@@ -244,12 +242,12 @@ class FilterDictMeta(ABCMeta):
             if f_kc(counter_eg_val):
                 raise ValueError(f'{clsname}{tmp} False')
 
-            # Conjunction of cls.keycheck(k) with basecls.keycheck(k) (after
-            # checking k against a list of reserved names). This allows us to
-            # specify only the tests that differentiate cls from basecls, thus
-            # avoiding code repetition (cls.keycheck would otherwise always
-            # have to call super().keycheck explictly before the actual,
-            # subclass-specific checks).
+            # Conjunction of `cls.keycheck(k)` with `basecls.keycheck(k)`
+            # (after checking `k` against a list of reserved names). This
+            # allows us to specify only the tests that differentiate `cls` from
+            # `basecls`, thus avoiding code repetition (`cls.keycheck` would
+            # otherwise have to call `super().keycheck` explicitly, every time,
+            # before the actual, subclass-specific checks).
             def _total_kc(k):
                 return k not in mcs._reserved and f_base_kc(k) and f_kc(k)
 
@@ -276,16 +274,18 @@ _d = _m._dics
 
 
 class FilterDict(MutableMapping, metaclass=_m):
-    """Abstract Base Class (ABC) that represents a mutable (ie non-read-only)
+    """
+    Abstract Base Class (ABC) that represents a mutable (ie non-read-only)
     mapping (aka dictionary) some utility class/static methods and, more
     importantly, greater flexibility in constructor parameter specification
-    (see the documentation for ``update``).
+    (see the documentation for ``update()``).
     """
 
     @staticmethod
     @abstractmethod
     def keycheck(k):
-        """Checks whether ``k`` is a valid key for the dictionary. This is an
+        """
+        Checks whether ``k`` is a valid key for the dictionary. This is an
         abstract method that nevertheless provides a default implementation
         in which any ``k`` that is a valid dictionary key (hashable, immutable)
         passes the test. Subclasses are *required* to override this method to
@@ -293,7 +293,6 @@ class FilterDict(MutableMapping, metaclass=_m):
         acceptable keys. Also see ``counter_eg``.
 
         :param k: The candidate key to validate.
-
         :return: In this ABC implementation, the method returns True if ``k``
             is hashable.
         """
@@ -338,7 +337,8 @@ class FilterDict(MutableMapping, metaclass=_m):
         return re.sub(r'[\t\n]+', '', str(self))
 
     def update(self, *args, **kwargs):
-        """Updates dictionary with elements from sequences or mappings.
+        """
+        Updates dictionary with elements from sequences or mappings.
 
         Similar to ``dict.update`` but with an extended signature that allows
         ``args`` to be a mixed sequence of sequences or mappings. In other
@@ -347,7 +347,6 @@ class FilterDict(MutableMapping, metaclass=_m):
         :param args: Sequence of ``Mapping``s, ``Sequence``s of key-value pairs
             or ``ItemView``s, in any order. Each element ``e`` in ``args``
             must be of a type accepted by ``dict.update``.
-
         :param kwargs: Keywords are validated with ``keycheck``; those items
             that fail the test are silently excluded from the dictionary.
         """
@@ -396,13 +395,13 @@ class StrDict(FilterDict):
 
     @staticmethod
     def keycheck(k):
-        """Checks whether ``k`` is a valid key for the dictionary.
+        """
+        Checks whether ``k`` is a valid key for the dictionary.
 
         For :class:`StrDict`, any string is considered a valid key, and anything
         else an invalid one.
 
         :param k: The key to be checked.
-
         :return: True iff input is a string.
         """
         return isinstance(k, str)
@@ -420,27 +419,26 @@ class StrDict(FilterDict):
 
 
 class NsDict(StrDict):
-    """Namespace-like dictionary, similar to ``SimpleNamespace`` from the
-    ``types`` module.
-    """
+    """Namespace-like dictionary, similar to ``types.SimpleNamespace``."""
 
     @staticmethod
     def keycheck(k):
-        """Determines whether an object is a valid identifier, meaning that it
+        """
+        Determines whether an object is a valid identifier, meaning that it
         is a string that starts with a letter or underscore, followed by zero
         or more letters, numbers or underscores. The requirement for being a
         string is implicit by its inheriting from ``StrDict`` and does not need
         to be encoded (by something like ``isinstance(k, str)``) here.
 
         :param k: The key to be checked.
-
         :return: True iff input is a usable (ie non-keyword) identifier.
         """
         return k.isidentifier() and not iskeyword(k)
 
     @staticmethod
     def counter_eg():
-        """Provides a "counter-example", ie an object that is considered a
+        """
+        Provides a "counter-example", ie an object that is considered a
         valid key for the parent class (in this case ``StrDict``) but is
         invalid for the concrete subclass ``NsDict``.
 
@@ -482,7 +480,8 @@ class NsDict(StrDict):
 
 
 class NestedNsDict(NsDict):
-    """Namespace-like dictionary that also supports chained assignment.
+    """
+    Namespace-like dictionary that also supports chained assignment.
 
     Example:
     >>> nns = NestedNsDict()
@@ -512,10 +511,9 @@ class NestedNsDict(NsDict):
             try:
                 return self[k]
             except KeyError:
-                # if k is missing, create a new instance. As before, we use
-                # ``type(self)()``, not ``__class__()``, as the latter would
-                # not work correctly if ``type(self)`` is a subclass of
-                # NestedNsDict
+                # if `k` is missing, create a new instance. As before, we use
+                # `type(self)()`, not `__class__()`, as the latter would not
+                # work correctly if `type(self)` is a `NestedNsDict` subclass
                 self[k] = d = cls()
                 cls._parents[d] = self
                 return d
