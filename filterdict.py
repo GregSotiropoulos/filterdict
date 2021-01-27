@@ -19,22 +19,26 @@ invalid keys (any ``k`` for which ``dic.keycheck(k) == False``), use of
 ``dic[k] = v`` (or ``dic.setdefault(k, v)``) will raise a ``TypeError``
 whereas ``dic.update(arg)`` will silently drop invalid items in ``arg``.
 
+|
 The module also provides a few concrete subclasses that can be useful either:
-    - on their own accord
-    - as base classes for other more useful subclasses
-    - as guides on how to subclass the ABC to create your own dictionary types
 
+    *   on their own accord
+    *   as base classes for other more useful subclasses
+    *   as guides on how to subclass the ABC to create your own dictionary
+        types
+
+|
 Notes
 =====
-    1. The module defines a custom metaclass that derives from ``ABCMeta``.
-       This should be transparent to client code, although it should be noted
-       that issues might arise due to metaclass conflicts (in cases where a
-       FilterDict subclass specifies its own custom metaclass) or in some
-       multiple inheritance scenarios.
-    2. A readonly view of (ie a ``MappingProxy`` wrapped around) the underlying
-       dictionary is provided via the ``proxy`` attribute. This may allow for
-       faster reads (calls to ``__getitem__``) and iteration as it bypasses
-       custom methods.
+    *   The module defines a custom metaclass that derives from ``ABCMeta``.
+        This should be transparent to client code, although it should be noted
+        that issues might arise due to metaclass conflicts (in cases where a
+        FilterDict subclass specifies its own custom metaclass) or in some
+        multiple inheritance scenarios.
+    *   A readonly view of (ie a ``MappingProxy`` wrapped around) the underlying
+        dictionary is provided via the ``proxy`` attribute. This may allow for
+        faster reads (calls to ``__getitem__``) and iteration as it bypasses
+        custom methods.
 """
 
 __all__ = 'FilterDict', 'StrDict', 'NsDict', 'NestedNsDict', 'getsignature'
@@ -66,6 +70,7 @@ def getsignature(routine, *implementors, default=None):
     """
     Retrieves the signature of a callable (method/function/etc).
 
+    |
     Utility function that slightly extends the ``signature`` method of the
     ``inspect`` module and tries some alternatives when the latter fails (which
     it does with certain ``dict`` methods, for example). Apart from the
